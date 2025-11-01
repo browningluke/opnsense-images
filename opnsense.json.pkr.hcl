@@ -1,6 +1,6 @@
 packer {
   required_plugins {
-    virtualbox = {
+    qemu = {
       source  = "github.com/hashicorp/qemu"
       version = "~> 1"
     }
@@ -11,7 +11,7 @@ source "qemu" "opnsense" {
   boot_wait = "3s"
   boot_steps = [
     ["1", "Boot in multi user mod"],
-    ["<wait6m>", "Waiting 3min for guest to start"],
+    ["<wait5m>", "Waiting 5min for guest to start"],
     ["root<enter>opnsense<enter><wait3s>", "Login into the firewall"],
     ["1<enter><wait2s>", "Start manual interface assignment"],
     ["N<enter><wait2s>", "Do not configure LAGGs now"],
@@ -33,20 +33,12 @@ source "qemu" "opnsense" {
     ["<down><enter><wait2s><enter><wait5m>", "Exit installer and wait 2min for guest to start"],
     ["root<enter>opnsense<enter><wait5s>", "Login into the firewall"],
     ["8<enter><wait2s>pfctl -d<enter><wait2s>", "Disabling firewall"],
-    [
-      "curl -o /usr/local/bin/opn-apikey http://{{ .HTTPIP }}:{{ .HTTPPort }}/opn-apikey<enter><wait3s>",
-      "Download opn-apikey"
-    ],
-    [
-      "chmod +x /usr/local/bin/opn-apikey<enter>",
-      "Add executable permission to opn-apikey script"
-    ]
   ]
   shutdown_command = "shutdown -p now<enter>"
 
   disk_size        = "8192M"
   disk_compression = true
-  cpus             = 2
+  cpus             = 4
   memory           = 4096 # OPNSense require 2G of RAM to install
   http_directory   = "http"
   net_device       = "virtio-net"
@@ -82,7 +74,7 @@ source "qemu" "opnsense" {
   # vnc_port_min = 5901
   # vnc_port_max = 5901
 
-  vm_name = "opnsense.qcow2"
+  vm_name = "opnsense-${var.VERSION}.qcow2"
 }
 
 
@@ -90,10 +82,22 @@ build {
   sources = ["source.qemu.opnsense"]
 
   provisioner "shell" {
-    execute_command = "chmod +x {{ .Path }}; /bin/sh -c '{{ .Vars }} {{ .Path }}'"
+    execute_command = "chmod +x {{ .Path }}; /bin/sh -c '{{ .Vars }} {{ .Path }} -u root create 2>&1 | tee /tmp/apikey.txt'" # "chmod +x {{ .Path }}; /bin/sh -c '{{ .Vars }} {{ .Path }}'"
     scripts = [
-      "scripts/base.sh",
-      "scripts/qemu-guest-agent.sh",
+      "scripts/opn-apikey"
+    ]
+  }
+
+  # Pull the log file back to the host
+  provisioner "file" {
+    direction = "download"
+    source      = "/tmp/apikey.txt"
+    destination = "apikey.txt"
+  }
+
+  provisioner "shell" {
+    execute_command = "chmod +x {{ .Path }}; /bin/sh -c '{{ .Vars }} {{ .Path }}'" # "chmod +x {{ .Path }}; /bin/sh -c '{{ .Vars }} {{ .Path }}'"
+    scripts = [
       "scripts/post-install.sh"
     ]
   }
